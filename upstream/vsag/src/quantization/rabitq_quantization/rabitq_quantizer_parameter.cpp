@@ -1,0 +1,151 @@
+
+// Copyright 2024-present the vsag project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "rabitq_quantizer_parameter.h"
+
+#include <cmath>
+
+#include "impl/logger/logger.h"
+#include "inner_string_params.h"
+
+namespace vsag {
+
+RaBitQuantizerParameter::RaBitQuantizerParameter()
+    : QuantizerParameter(QUANTIZATION_TYPE_VALUE_RABITQ) {
+}
+
+void
+RaBitQuantizerParameter::FromJson(const JsonType& json) {
+    if (json.Contains(PCA_DIM_KEY)) {
+        this->pca_dim_ = json[PCA_DIM_KEY].GetInt();
+    }
+    if (json.Contains(RABITQ_QUANTIZATION_BITS_PER_DIM_QUERY_KEY)) {
+        this->num_bits_per_dim_query_ = json[RABITQ_QUANTIZATION_BITS_PER_DIM_QUERY_KEY].GetInt();
+    }
+
+    if (num_bits_per_dim_query_ != 4 and num_bits_per_dim_query_ != 32) {
+        throw VsagException(
+            ErrorType::INVALID_ARGUMENT,
+            fmt::format("currently, only support rabitq_bits_per_dim_query = 4 or 32, but got {}",
+                        num_bits_per_dim_query_));
+    }
+
+    if (json.Contains(RABITQ_QUANTIZATION_BITS_PER_DIM_BASE_KEY)) {
+        this->num_bits_per_dim_base_ = json[RABITQ_QUANTIZATION_BITS_PER_DIM_BASE_KEY].GetInt();
+    }
+
+    if (num_bits_per_dim_base_ > 8 or num_bits_per_dim_base_ < 1) {
+        throw VsagException(
+            ErrorType::INVALID_ARGUMENT,
+            fmt::format("currently, only support rabitq_bits_per_dim_base in [1, 8], but got {}",
+                        num_bits_per_dim_base_));
+    }
+    if (json.Contains(RABITQ_QUANTIZATION_VERSION_KEY)) {
+        this->rabitq_version_ = json[RABITQ_QUANTIZATION_VERSION_KEY].GetString();
+    }
+    if (this->rabitq_version_ != DEFAULT_RABITQ_VERSION &&
+        this->rabitq_version_ != RABITQ_VERSION_SPLIT_1BIT_7BIT) {
+        throw VsagException(ErrorType::INVALID_ARGUMENT,
+                            fmt::format("unsupported rabitq_version: {}", rabitq_version_));
+    }
+    if (this->rabitq_version_ == RABITQ_VERSION_SPLIT_1BIT_7BIT &&
+        this->num_bits_per_dim_query_ != 32) {
+        throw VsagException(ErrorType::INVALID_ARGUMENT,
+                            "rabitq_version=split_1bit_7bit requires rabitq_bits_per_dim_query=32");
+    }
+    if (json.Contains(RABITQ_QUANTIZATION_ERROR_RATE_KEY)) {
+        this->rabitq_error_rate_ = json[RABITQ_QUANTIZATION_ERROR_RATE_KEY].GetFloat();
+    }
+    if (not std::isfinite(this->rabitq_error_rate_) || this->rabitq_error_rate_ <= 0.0F) {
+        throw VsagException(ErrorType::INVALID_ARGUMENT,
+                            fmt::format("rabitq_error_rate must be finite and positive, got {}",
+                                        rabitq_error_rate_));
+    }
+    if (json.Contains(USE_FHT_KEY)) {
+        this->use_fht_ = json[USE_FHT_KEY].GetBool();
+    }
+}
+
+JsonType
+RaBitQuantizerParameter::ToJson() const {
+    JsonType json;
+    json[TYPE_KEY].SetString(QUANTIZATION_TYPE_VALUE_RABITQ);
+    json[PCA_DIM_KEY].SetInt(this->pca_dim_);
+    json[RABITQ_QUANTIZATION_VERSION_KEY].SetString(this->rabitq_version_);
+    json[RABITQ_QUANTIZATION_BITS_PER_DIM_QUERY_KEY].SetInt(this->num_bits_per_dim_query_);
+    json[RABITQ_QUANTIZATION_BITS_PER_DIM_BASE_KEY].SetInt(this->num_bits_per_dim_base_);
+    json[RABITQ_QUANTIZATION_ERROR_RATE_KEY].SetFloat(this->rabitq_error_rate_);
+    json[USE_FHT_KEY].SetBool(this->use_fht_);
+    return json;
+}
+
+bool
+RaBitQuantizerParameter::CheckCompatibility(const ParamPtr& other) const {
+    auto rabitq_param = std::dynamic_pointer_cast<RaBitQuantizerParameter>(other);
+    if (not rabitq_param) {
+        logger::error(
+            "RaBitQuantizerParameter::CheckCompatibility: other parameter is not a "
+            "RaBitQuantizerParameter");
+        return false;
+    }
+    if (this->pca_dim_ != rabitq_param->pca_dim_) {
+        logger::error(
+            "RaBitQuantizerParameter::CheckCompatibility: PCA dimensions do not match: {} vs {}",
+            this->pca_dim_,
+            rabitq_param->pca_dim_);
+        return false;
+    }
+    if (this->num_bits_per_dim_query_ != rabitq_param->num_bits_per_dim_query_) {
+        logger::error(
+            "RaBitQuantizerParameter::CheckCompatibility: Number of bits per dimension query do "
+            "not match: {} vs {}",
+            this->num_bits_per_dim_query_,
+            rabitq_param->num_bits_per_dim_query_);
+        return false;
+    }
+    if (this->num_bits_per_dim_base_ != rabitq_param->num_bits_per_dim_base_) {
+        logger::error(
+            "RaBitQuantizerParameter::CheckCompatibility: Number of bits per dimension base do "
+            "not match: {} vs {}",
+            this->num_bits_per_dim_base_,
+            rabitq_param->num_bits_per_dim_base_);
+        return false;
+    }
+    if (this->rabitq_version_ != rabitq_param->rabitq_version_) {
+        logger::error(
+            "RaBitQuantizerParameter::CheckCompatibility: RabitQ version does not match: {} vs {}",
+            this->rabitq_version_,
+            rabitq_param->rabitq_version_);
+        return false;
+    }
+    if (this->rabitq_error_rate_ != rabitq_param->rabitq_error_rate_) {
+        logger::error(
+            "RaBitQuantizerParameter::CheckCompatibility: RabitQ error rate does not match: {} "
+            "vs {}",
+            this->rabitq_error_rate_,
+            rabitq_param->rabitq_error_rate_);
+        return false;
+    }
+    if (this->use_fht_ != rabitq_param->use_fht_) {
+        logger::error(
+            "RaBitQuantizerParameter::CheckCompatibility: Use FHT flag does not match: {} vs {}",
+            this->use_fht_,
+            rabitq_param->use_fht_);
+        return false;
+    }
+
+    return true;
+}
+}  // namespace vsag
