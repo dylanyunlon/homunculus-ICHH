@@ -1,0 +1,14 @@
+# Go build artifacts
+/bin/
+/dist/
+*.test
+*.out
+coverage.out
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Benchmark outputs generated locally
+/benchmarks/results/
